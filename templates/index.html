@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Voice Notes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>🎙️ Voice Notes</h1>
+    
+    <div class="controls">
+      <button id="recordBtn">🎤 Start Recording</button>
+      <button id="stopBtn" disabled>⏹️ Stop Recording</button>
+      <a href="{{ url_for('list_notes') }}">📚 View Saved Notes</a>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>Original Transcription</h3>
+        <pre id="origText">(Ready to record... Please speak in Hindi or English)</pre>
+      </div>
+      <div class="panel" id="englishPanel" style="display: none;">
+        <h3>English Translation</h3>
+        <pre id="enText">(English translation will appear here)</pre>
+      </div>
+    </div>
+
+    <div id="status" class="status-message">Ready to record your voice note!</div>
+
+    <div id="saveModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Save Your Voice Note</h2>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="noteName">Note Name:</label>
+            <input type="text" id="noteName" placeholder="Enter a name for your note..." maxlength="100" />
+          </div>
+          <div class="form-group">
+            <label for="noteCategory">Category:</label>
+            <select id="noteCategory">
+              <option value="Personal">Personal</option>
+              <option value="Office">Office</option>
+              <option value="Others">Others</option>
+            </select>
+          </div>
+          <div class="note-preview">
+            <div class="preview-section">
+              <h4>Preview:</h4>
+              <div class="language-info">
+                <strong>Language:</strong> <span id="previewLanguage">-</span>
+              </div>
+              <div class="text-preview">
+                <strong>Original:</strong> <span id="previewOriginal">-</span>
+              </div>
+              <div class="text-preview" id="previewEnglishSection" style="display: none;">
+                <strong>English:</strong> <span id="previewEnglish">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancelSave" class="btn-cancel">Cancel</button>
+          <button id="confirmSave" class="btn-confirm">💾 Save Note</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modalOverlay" class="modal-overlay" style="display: none;"></div>
+  </div>
+
+  <script defer>
+    let recordBtn = document.getElementById("recordBtn");
+    let stopBtn = document.getElementById("stopBtn");
+    let origTextEl = document.getElementById("origText");
+    let enTextEl = document.getElementById("enText");
+    let englishPanel = document.getElementById("englishPanel");
+    let statusEl = document.getElementById("status");
+
+    let saveModal = document.getElementById("saveModal");
+    let modalOverlay = document.getElementById("modalOverlay");
+    let noteName = document.getElementById("noteName");
+    let noteCategory = document.getElementById("noteCategory");
+    let cancelSave = document.getElementById("cancelSave");
+    let confirmSave = document.getElementById("confirmSave");
+    let previewLanguage = document.getElementById("previewLanguage");
+    let previewOriginal = document.getElementById("previewOriginal");
+    let previewEnglish = document.getElementById("previewEnglish");
+    let previewEnglishSection = document.getElementById("previewEnglishSection");
+
+    let mediaRecorder;
+    let audioChunks = [];
+    let lastTranscriptionData = null;
+
+    let recognition;
+    if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'hi-IN'; 
+      recognition.onresult = (event) => {
+        let interim = "";
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          let text = event.results[i][0].transcript;
+          if (event.results[i].isFinal) final += text;
+          else interim += text;
+        }
+        if (final || interim) {
+          origTextEl.textContent = (final + " " + interim).trim();
+        }
+      };
+      recognition.onerror = (e) => {
+        console.warn("SpeechRecognition error", e);
+      };
+    }
+
+    function setStatus(message, type = '') {
+      statusEl.textContent = message;
+      statusEl.className = 'status-message ' + type;
+    }
+
+    function resetUI() {
+      recordBtn.disabled = false;
+      stopBtn.disabled = true;
+      recordBtn.classList.remove('recording');
+      origTextEl.textContent = "(Ready to record... Please speak in Hindi or English)";
+      enTextEl.textContent = "(English translation will appear here)";
+      englishPanel.style.display = "none";
+      lastTranscriptionData = null;
+      hideModal();
+      
+      // Reset panels layout
+      const panels = document.querySelector('.panels');
+      panels.style.gridTemplateColumns = '1fr';
+    }
+
+    function updatePanelsLayout(language) {
+      const panels = document.querySelector('.panels');
+      if (language === 'hindi') {
+        englishPanel.style.display = "block";
+        panels.style.gridTemplateColumns = '1fr 1fr';
+      } else {
+        englishPanel.style.display = "none";
+        panels.style.gridTemplateColumns = '1fr';
+      }
+    }
+
+    function showModal(data) {
+      lastTranscriptionData = data;
+      previewLanguage.textContent = data.language;
+      previewOriginal.textContent = data.orig_text.substring(0, 100) + (data.orig_text.length > 100 ? '...' : '');
+      
+      // Show English preview only for Hindi
+      if (data.language === 'hindi' && data.en_text) {
+        previewEnglish.textContent = data.en_text.substring(0, 100) + (data.en_text.length > 100 ? '...' : '');
+        previewEnglishSection.style.display = 'block';
+      } else {
+        previewEnglishSection.style.display = 'none';
+      }
+      
+      let defaultName = data.orig_text.split(' ').slice(0, 3).join(' ');
+      if (defaultName.length > 30) defaultName = defaultName.substring(0, 30);
+      noteName.value = defaultName || 'Voice Note';
+      noteCategory.value = 'Personal';
+      
+      saveModal.style.display = 'block';
+      modalOverlay.style.display = 'block';
+      noteName.focus();
+      noteName.select();
+    }
+
+    function hideModal() {
+      saveModal.style.display = 'none';
+      modalOverlay.style.display = 'none';
+      noteName.value = '';
+      noteCategory.value = 'Personal';
+      previewEnglishSection.style.display = 'none';
+    }
+
+    recordBtn.onclick = async () => {
+      recordBtn.disabled = true;
+      stopBtn.disabled = false;
+      recordBtn.classList.add('recording');
+      
+      origTextEl.textContent = "(🔴 Recording... Please speak clearly in Hindi or English)";
+      enTextEl.textContent = "(Waiting for transcription...)";
+      englishPanel.style.display = "none";
+      const panels = document.querySelector('.panels');
+      panels.style.gridTemplateColumns = '1fr';
+      setStatus("🎙️ Recording in progress... Speak clearly!", "");
+
+      if (recognition) {
+        try { recognition.start(); } catch(e) {}
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        
+        mediaRecorder.ondataavailable = e => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+        
+        mediaRecorder.start();
+      } catch (err) {
+        setStatus("⚠️ Error accessing microphone. Please allow microphone access.", "error");
+        resetUI();
+      }
+    };
+
+    stopBtn.onclick = async () => {
+      stopBtn.disabled = true;
+      recordBtn.classList.remove('recording');
+      setStatus("⏳ Processing audio... Please wait", "");
+      
+      if (recognition) {
+        try { recognition.stop(); } catch(e) {}
+      }
+
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        
+        mediaRecorder.onstop = async () => {
+          setStatus("🤖 Transcribing and translating... This may take a moment", "");
+          
+          const blob = new Blob(audioChunks, { type: "audio/webm" });
+          const fd = new FormData();
+          fd.append("audio_data", blob, "note.webm");
+
+          try {
+            const resp = await fetch("/upload_audio", { method: "POST", body: fd });
+            const j = await resp.json();
+            
+            if (j.error) {
+              setStatus("⚠️ " + j.error, "error");
+              setTimeout(resetUI, 3000);
+            } else {
+              origTextEl.textContent = j.orig_text || "(No transcription available)";
+              
+              // Update layout and content based on language
+              updatePanelsLayout(j.language);
+              
+              if (j.language === 'hindi' && j.en_text) {
+                enTextEl.textContent = j.en_text;
+                setStatus(`✅ Transcription complete! Language: ${j.language} (with English translation) | Choose name and category to save`, "success");
+              } else {
+                setStatus(`✅ Transcription complete! Language: ${j.language} | Choose name and category to save`, "success");
+              }
+              
+              showModal(j);
+            }
+          } catch (err) {
+            console.error(err);
+            setStatus("⚠️ Upload/processing failed. Please try again.", "error");
+            setTimeout(resetUI, 3000);
+          }
+        };
+      }
+    };
+
+    confirmSave.onclick = async () => {
+      if (!lastTranscriptionData || !noteName.value.trim()) {
+        alert("Please enter a name for your note!");
+        return;
+      }
+      
+      confirmSave.disabled = true;
+      setStatus("💾 Saving your note...", "");
+      
+      try {
+        const saveData = {
+          temp_filename: lastTranscriptionData.temp_filename,
+          custom_name: noteName.value.trim(),
+          category: noteCategory.value,
+          orig_text: lastTranscriptionData.orig_text,
+          en_text: lastTranscriptionData.en_text,
+          language: lastTranscriptionData.language
+        };
+
+        const resp = await fetch("/save_note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(saveData)
+        });
+
+        const result = await resp.json();
+        
+        if (result.success) {
+          setStatus(`🎉 Note "${result.filename}" saved in ${result.category} category!`, "success");
+          setTimeout(() => {
+            setStatus("Ready to record your next voice note!", "");
+            resetUI();
+          }, 3000);
+        } else {
+          throw new Error(result.error || "Save failed");
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus("⚠️ Failed to save note. Please try again.", "error");
+        confirmSave.disabled = false;
+      }
+    };
+
+    cancelSave.onclick = () => {
+      hideModal();
+      recordBtn.disabled = false;
+      setStatus("Note cancelled. Ready to record again or try saving.", "");
+    };
+
+    modalOverlay.onclick = cancelSave.onclick;
+
+    noteName.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        confirmSave.click();
+      }
+    };
+
+    resetUI();
+    setStatus("🎤 Ready to record your voice note! Supports Hindi and English.", "");
+  </script>
+</body>
+</html>

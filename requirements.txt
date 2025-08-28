@@ -1,0 +1,7 @@
+Flask==2.3.3
+python-docx==0.8.11
+whisper==20230314                # open-source whisper package (CPU/GPU)
+torch                           # required backend for whisper
+pydub
+sqlalchemy
+werkzeug

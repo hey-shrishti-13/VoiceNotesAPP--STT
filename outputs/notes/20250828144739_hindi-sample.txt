@@ -1,0 +1,7 @@
+Language detected: hindi
+
+Original transcription:
+ये एक हिंदी सामपल है
+
+English translation:
+This is a Hindi sample.

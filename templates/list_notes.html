@@ -1,0 +1,242 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Saved Voice Notes</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <div class="container">
+    <h1>📚 Saved Voice Notes</h1>
+    
+    <div class="search-form">
+      <form method="get">
+        <input name="q" placeholder="🔍 Search by filename or content..." value="{{ query or '' }}">
+        <select name="category" onchange="this.form.submit()">
+          <option value="">All Categories</option>
+          <option value="Personal" {{ 'selected' if selected_category == 'Personal' else '' }}>Personal</option>
+          <option value="Office" {{ 'selected' if selected_category == 'Office' else '' }}>Office</option>
+          <option value="Others" {{ 'selected' if selected_category == 'Others' else '' }}>Others</option>
+        </select>
+        <button type="submit">Search</button>
+        <a href="/">🎤 Record New Note</a>
+      </form>
+    </div>
+
+    <div class="notes-grid">
+      {% for n in notes %}
+      <div class="note-card">
+        <div class="note-header">
+          <div class="note-info">
+            <h3>🎵 {{ n.filename }}</h3>
+            <div class="note-meta">
+              <span class="category-badge category-{{ (n.category or 'Others').lower() }}">
+                📁 {{ n.category or 'Others' }}
+              </span>
+              <span>🌍 {{ n.language | title }}</span>
+              <span>📅 {{ n.created_at.strftime('%Y-%m-%d %H:%M UTC') if n.created_at and n.created_at.strftime else (n.created_at if n.created_at else 'Unknown') }}</span>
+            </div>
+          </div>
+          <div class="note-actions">
+            <a href="/outputs/notes/{{ n.transcription_file }}" target="_blank">📄 TXT</a>
+            <a href="/outputs/notes/{{ n.docx_file }}" target="_blank">📝 DOCX</a>
+            
+            {% if n.audio_file %}
+            <a href="/download_audio/{{ n.audio_file }}" download class="download-audio-btn">
+              🎧 Download Audio
+            </a>
+            {% endif %}
+
+            <button class="rename-btn" 
+                    data-txt="{{ n.transcription_file }}" 
+                    data-docx="{{ n.docx_file }}" 
+                    data-audio="{{ n.audio_file }}">
+              ✏️ Rename
+            </button>
+
+            <button class="delete-btn" 
+                    data-txt="{{ n.transcription_file }}" 
+                    data-docx="{{ n.docx_file }}" 
+                    data-audio="{{ n.audio_file }}">
+              🗑️ Delete
+            </button>
+          </div>
+        </div>
+
+        {% if n.audio_file %}
+        <div class="audio-player">
+          <audio controls preload="metadata">
+            <source src="/outputs/audio/{{ n.audio_file }}" type="audio/webm">
+            <source src="/outputs/audio/{{ n.audio_file }}" type="audio/wav">
+            Your browser does not support the audio element.
+          </audio>
+        </div>
+        {% endif %}
+
+        <div class="transcription-content" style="grid-template-columns: {% if n.language == 'hindi' %}1fr 1fr{% else %}1fr{% endif %};">
+          <div class="transcription-section">
+            <h4>Original Transcription{% if n.language %} ({{ n.language | title }}){% endif %}</h4>
+            <div class="transcription-text original-text">
+              {% if n.orig_text %}
+                {{ n.orig_text }}
+              {% elif n.transcription_file %}
+                <div id="text-{{ n.id }}" class="loading-text">Loading text...</div>
+                <script>
+                  fetch('/outputs/notes/{{ n.transcription_file }}')
+                    .then(response => response.text())
+                    .then(text => {
+                      const lines = text.split('\n');
+                      let originalText = '';
+                      let isOriginal = false;
+                      
+                      for (const line of lines) {
+                        if (line.startsWith('Original transcription:')) {
+                          isOriginal = true;
+                          continue;
+                        } else if (line.startsWith('English translation:')) {
+                          isOriginal = false;
+                          continue;
+                        } else if (line.startsWith('Language detected:')) {
+                          continue;
+                        }
+                        
+                        if (isOriginal && line.trim()) {
+                          originalText += line + '\n';
+                        }
+                      }
+                      
+                      document.getElementById('text-{{ n.id }}').textContent = originalText.trim() || 'No original text available';
+                      document.getElementById('text-{{ n.id }}').classList.remove('loading-text');
+                    })
+                    .catch(() => {
+                      document.getElementById('text-{{ n.id }}').textContent = 'Error loading text';
+                      document.getElementById('text-{{ n.id }}').classList.remove('loading-text');
+                    });
+                </script>
+              {% else %}
+                No original text available
+              {% endif %}
+            </div>
+          </div>
+          
+          {% if n.language == 'hindi' %}
+          <div class="transcription-section">
+            <h4>English Translation</h4>
+            <div class="transcription-text english-text">
+              {% if n.en_text %}
+                {{ n.en_text }}
+              {% elif n.transcription_file %}
+                <div id="en-text-{{ n.id }}" class="loading-text">Loading text...</div>
+                <script>
+                  fetch('/outputs/notes/{{ n.transcription_file }}')
+                    .then(response => response.text())
+                    .then(text => {
+                      const lines = text.split('\n');
+                      let englishText = '';
+                      let isEnglish = false;
+                      
+                      for (const line of lines) {
+                        if (line.startsWith('English translation:')) {
+                          isEnglish = true;
+                          continue;
+                        } else if (line.startsWith('Original transcription:')) {
+                          isEnglish = false;
+                          continue;
+                        } else if (line.startsWith('Language detected:')) {
+                          continue;
+                        }
+                        
+                        if (isEnglish && line.trim()) {
+                          englishText += line + '\n';
+                        }
+                      }
+                      
+                      document.getElementById('en-text-{{ n.id }}').textContent = englishText.trim() || 'No English translation available';
+                      document.getElementById('en-text-{{ n.id }}').classList.remove('loading-text');
+                    })
+                    .catch(() => {
+                      document.getElementById('en-text-{{ n.id }}').textContent = 'Error loading text';
+                      document.getElementById('en-text-{{ n.id }}').classList.remove('loading-text');
+                    });
+                </script>
+              {% else %}
+                No English translation available
+              {% endif %}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="no-notes">
+        <h3>🔭 No voice notes found</h3>
+        <p>{% if query %}Try a different search term or category, or{% endif %} <a href="/">start recording your first voice note</a>!</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    // Delete functionality
+    document.querySelectorAll('.delete-btn').forEach(button => {
+      button.addEventListener('click', async () => {
+        if (!confirm("Are you sure you want to delete this note?")) return;
+
+        const txtFile = button.getAttribute('data-txt');
+        const docxFile = button.getAttribute('data-docx');
+        const audioFile = button.getAttribute('data-audio');
+
+        try {
+          const response = await fetch(`/delete_note?txt=${txtFile}&docx=${docxFile}&audio=${audioFile}`, { method: 'DELETE' });
+          const result = await response.json();
+          
+          if (result.success) {
+            alert("Note deleted successfully!");
+            button.closest('.note-card').remove();
+          } else {
+            alert("Failed to delete note: " + result.error);
+          }
+        } catch (error) {
+          console.error(error);
+          alert("An error occurred while deleting the note.");
+        }
+      });
+    });
+
+    // Rename functionality
+    document.querySelectorAll('.rename-btn').forEach(button => {
+      button.addEventListener('click', async () => {
+        const oldName = prompt("Enter new name (without extension):");
+        if (!oldName || !oldName.trim()) return;
+
+        const txtFile = button.getAttribute('data-txt');
+        const docxFile = button.getAttribute('data-docx');
+        const audioFile = button.getAttribute('data-audio');
+
+        try {
+          const response = await fetch(`/rename_note?txt=${txtFile}&docx=${docxFile}&audio=${audioFile}&new_name=${encodeURIComponent(oldName)}`, {
+            method: 'PUT'
+          });
+          const result = await response.json();
+
+          if (result.success) {
+            alert("Note renamed successfully!");
+            button.closest('.note-card').querySelector('h3').textContent = "🎵 " + oldName;
+            // Update download links if they exist
+            const downloadBtn = button.closest('.note-card').querySelector('.download-audio-btn');
+            if (downloadBtn && result.renamed.audio) {
+              downloadBtn.href = `/download_audio/${result.renamed.audio}`;
+            }
+          } else {
+            alert("Failed to rename note: " + result.error);
+          }
+        } catch (error) {
+          console.error(error);
+          alert("An error occurred while renaming the note.");
+        }
+      });
+    });
+  </script>
+</body>
+</html>
